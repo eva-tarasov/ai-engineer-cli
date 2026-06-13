@@ -3,6 +3,11 @@ import sys
 
 from ai_engineer_cli.config import load_config
 from ai_engineer_cli.llm_client import LLMClient
+from ai_engineer_cli.prompt_templates import (
+    list_templates,
+    load_template,
+    render_template,
+)
 from ai_engineer_cli.response_format import (
     ResponseFormat,
     build_system_prompt,
@@ -18,6 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "prompt",
+        nargs="?",
         type=str,
         help="Prompt to send to the LLM.",
     )
@@ -43,6 +49,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Instruction that tells the model how to finish the answer.",
     )
 
+    parser.add_argument(
+        "--template",
+        type=str,
+        default=None,
+        help="Prompt template name from the prompts directory.",
+    )
+
+    parser.add_argument(
+        "--list-templates",
+        action="store_true",
+        help="List available prompt templates and exit.",
+    )
+
     return parser
 
 
@@ -51,6 +70,22 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
+        if args.list_templates:
+            templates = list_templates()
+
+            if not templates:
+                print("No templates found.")
+                return
+
+            print("Available templates:")
+            for template in templates:
+                print(f"- {template}")
+
+            return
+
+        if not args.prompt:
+            raise ValueError("Prompt is required unless --list-templates is used.")
+
         if args.max_output_tokens is not None and args.max_output_tokens <= 0:
             raise ValueError("--max-output-tokens must be greater than 0.")
 
@@ -62,11 +97,20 @@ def main() -> None:
             stop_instruction=args.stop_instruction,
         )
 
+        prompt = args.prompt
+
+        if args.template:
+            template_text = load_template(args.template)
+            prompt = render_template(
+                template_text=template_text,
+                user_input=args.prompt,
+            )
+
         config = load_config()
         llm_client = LLMClient(config)
 
         response = llm_client.ask(
-            prompt=args.prompt,
+            prompt=prompt,
             system_prompt=system_prompt,
             max_output_tokens=args.max_output_tokens,
         )
