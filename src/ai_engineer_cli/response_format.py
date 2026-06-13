@@ -8,8 +8,14 @@ class ResponseFormat(str, Enum):
     JSON = "json"
 
 
+class ResponseLanguage(str, Enum):
+    RU = "ru"
+    EN = "en"
+
+
 def build_system_prompt(
     response_format: ResponseFormat,
+    language: ResponseLanguage = ResponseLanguage.RU,
     max_output_tokens: int | None = None,
     stop_instruction: str | None = None,
 ) -> str:
@@ -17,6 +23,13 @@ def build_system_prompt(
         "You are a helpful engineering assistant.",
         "Keep the answer clear, practical, and technically accurate.",
     ]
+
+    if language == ResponseLanguage.RU:
+        instructions.append("Answer in Russian.")
+    elif language == ResponseLanguage.EN:
+        instructions.append("Answer in English.")
+    else:
+        raise ValueError(f"Unsupported response language: {language}")
 
     if response_format == ResponseFormat.TEXT:
         instructions.append("Answer in plain text.")

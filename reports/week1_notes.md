@@ -1,3 +1,4 @@
+## Day 2
 ### Experiment: unconstrained vs constrained response
 
 Prompt:
@@ -80,3 +81,21 @@ Problem:
 Prompt templates are reusable behavioral contracts for LLM calls. They make prompts versionable, testable, and easier to improve.
 
 Different prompting strategies change the quality and structure of the answer. Direct prompts are fast, step-by-step prompts are better for learning, generated prompts can improve task framing, and expert-group prompts are useful for review but may be too verbose for simple tasks.
+
+### Small UX improvements before Day 4
+
+Added:
+- `--language ru|en` to control response language.
+- Russian is the default response language.
+- Visual response separators for better terminal readability.
+- `--no-separator` for raw output mode.
+
+Commands tested:
+
+- `PYTHONPATH=src python -m ai_engineer_cli.cli "Explain dependency injection in iOS" --template explain_concept --format markdown --language ru`
+- `PYTHONPATH=src python -m ai_engineer_cli.cli "Explain dependency injection in iOS" --template explain_concept --format markdown --language en`
+- `PYTHONPATH=src python -m ai_engineer_cli.cli "Explain dependency injection in iOS" --template explain_concept --format markdown --language ru --no-separator`
+
+Conclusion:
+
+Language and output formatting are part of CLI usability. A developer tool should not only produce correct answers, but also make them easy to read and control.

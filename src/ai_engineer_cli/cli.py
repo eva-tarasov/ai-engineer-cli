@@ -10,6 +10,7 @@ from ai_engineer_cli.prompt_templates import (
 )
 from ai_engineer_cli.response_format import (
     ResponseFormat,
+    ResponseLanguage,
     build_system_prompt,
     validate_json_response,
 )
@@ -33,6 +34,13 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[item.value for item in ResponseFormat],
         default=ResponseFormat.TEXT.value,
         help="Response format: text, markdown, or json.",
+    )
+
+    parser.add_argument(
+        "--language",
+        choices=[item.value for item in ResponseLanguage],
+        default=ResponseLanguage.RU.value,
+        help="Response language: ru or en.",
     )
 
     parser.add_argument(
@@ -62,7 +70,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="List available prompt templates and exit.",
     )
 
+    parser.add_argument(
+        "--no-separator",
+        action="store_true",
+        help="Print raw response without visual separators.",
+    )
+
     return parser
+
+
+def print_response(response: str, use_separator: bool = True) -> None:
+    if not use_separator:
+        print(response)
+        return
+
+    separator = "─" * 60
+
+    print()
+    print(separator)
+    print("AI RESPONSE")
+    print(separator)
+    print()
+    print(response)
+    print()
+    print(separator)
 
 
 def main() -> None:
@@ -90,9 +121,11 @@ def main() -> None:
             raise ValueError("--max-output-tokens must be greater than 0.")
 
         response_format = ResponseFormat(args.format)
+        response_language = ResponseLanguage(args.language)
 
         system_prompt = build_system_prompt(
             response_format=response_format,
+            language=response_language,
             max_output_tokens=args.max_output_tokens,
             stop_instruction=args.stop_instruction,
         )
@@ -118,7 +151,10 @@ def main() -> None:
         if response_format == ResponseFormat.JSON:
             validate_json_response(response)
 
-        print(response)
+        print_response(
+            response=response,
+            use_separator=not args.no_separator,
+        )
 
     except Exception as error:
         print(f"Error: {error}", file=sys.stderr)
