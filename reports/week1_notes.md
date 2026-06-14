@@ -99,3 +99,59 @@ Commands tested:
 Conclusion:
 
 Language and output formatting are part of CLI usability. A developer tool should not only produce correct answers, but also make them easy to read and control.
+
+## Day 4 — Temperature and generation control
+
+### What I built
+
+- Added `--temperature` CLI argument.
+- Passed `temperature` from CLI to `LLMClient`.
+- Added validation: temperature must be between 0 and 2.
+- Preserved existing CLI parameters:
+  - `--format`
+  - `--language`
+  - `--max-output-tokens`
+  - `--stop-instruction`
+  - `--template`
+  - `--list-templates`
+  - `--no-separator`
+
+### Commands tested
+
+- `PYTHONPATH=src python -m ai_engineer_cli.cli --help`
+- `PYTHONPATH=src python -m ai_engineer_cli.cli "Test" --temperature -1`
+- `PYTHONPATH=src python -m ai_engineer_cli.cli "Test" --temperature 3`
+
+### Experiment 1: creative task
+
+Prompt:
+
+`Придумай 7 названий для CLI-инструмента разработчика, который помогает работать с LLM, prompt templates, логами и анализом кода.`
+
+| Temperature | Accuracy | Creativity | Diversity | Notes |
+|---:|---|---|---|---|
+| 0 | high/medium/low | high/medium/low | high/medium/low | TODO |
+| 0.7 | high/medium/low | high/medium/low | high/medium/low | TODO |
+| 1.2 | high/medium/low | high/medium/low | high/medium/low | TODO |
+
+### Experiment 2: technical explanation
+
+Prompt:
+
+`Объясни, почему для Product of Array Except Self нельзя использовать деление, если в массиве есть нули.`
+
+| Temperature | Accuracy | Creativity | Diversity | Notes |
+|---:|---|---|---|---|
+| 0 | high/medium/low | high/medium/low | high/medium/low | TODO |
+| 0.7 | high/medium/low | high/medium/low | high/medium/low | TODO |
+| 1.2 | high/medium/low | high/medium/low | high/medium/low | TODO |
+
+### Practical conclusions
+
+- `temperature = 0` is best for code review, JSON output, technical instructions, deterministic explanations, and tasks where stability matters.
+- `temperature = 0.7` is good for balanced explanations, learning, documentation drafts, and idea generation with reasonable control.
+- `temperature = 1.2` is better for brainstorming and creative exploration, but it may reduce precision and produce less practical answers.
+
+### Engineering conclusion
+
+Temperature controls variability, not intelligence. For developer tools, low temperature should be the default for correctness-sensitive tasks. Higher temperature can be useful for brainstorming, naming, and alternative ideas, but outputs need stronger review.

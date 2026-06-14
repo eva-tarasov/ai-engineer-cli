@@ -76,6 +76,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print raw response without visual separators.",
     )
 
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="Sampling temperature. Lower values are more deterministic; higher values are more diverse.",
+    )
+
     return parser
 
 
@@ -120,6 +127,9 @@ def main() -> None:
         if args.max_output_tokens is not None and args.max_output_tokens <= 0:
             raise ValueError("--max-output-tokens must be greater than 0.")
 
+        if args.temperature is not None and not 0 <= args.temperature <= 2:
+            raise ValueError("--temperature must be between 0 and 2.")
+
         response_format = ResponseFormat(args.format)
         response_language = ResponseLanguage(args.language)
 
@@ -146,6 +156,7 @@ def main() -> None:
             prompt=prompt,
             system_prompt=system_prompt,
             max_output_tokens=args.max_output_tokens,
+            temperature=args.temperature,
         )
 
         if response_format == ResponseFormat.JSON:

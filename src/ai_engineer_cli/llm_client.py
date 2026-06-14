@@ -13,6 +13,7 @@ class LLMClient:
         prompt: str,
         system_prompt: str | None = None,
         max_output_tokens: int | None = None,
+        temperature: float | None = None,
     ) -> str:
         if system_prompt:
             input_messages = [
@@ -35,6 +36,9 @@ class LLMClient:
 
         if max_output_tokens is not None:
             request_params["max_output_tokens"] = max_output_tokens
+
+        if temperature is not None:
+            request_params["temperature"] = temperature
 
         response = self.client.responses.create(**request_params)
 
