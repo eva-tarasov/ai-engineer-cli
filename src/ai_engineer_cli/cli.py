@@ -77,18 +77,41 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--no-metadata",
+        action="store_true",
+        help="Do not print response metadata such as model, duration, tokens, and estimated cost.",
+    )
+
+    parser.add_argument(
         "--temperature",
         type=float,
         default=None,
         help="Sampling temperature. Lower values are more deterministic; higher values are more diverse.",
     )
 
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Model name. Overrides OPENAI_MODEL from .env.",
+    )
+
     return parser
 
 
-def print_response(response: str, use_separator: bool = True) -> None:
+def print_response(
+    response: str,
+    use_separator: bool = True,
+    metadata: dict[str, str] | None = None,
+    show_metadata: bool = True,
+) -> None:
     if not use_separator:
         print(response)
+
+        if metadata and show_metadata:
+            print()
+            print_metadata(metadata)
+
         return
 
     separator = "─" * 60
@@ -100,7 +123,20 @@ def print_response(response: str, use_separator: bool = True) -> None:
     print()
     print(response)
     print()
+
+    if metadata and show_metadata:
+        print(separator)
+        print("METADATA")
+        print(separator)
+        print_metadata(metadata)
+        print()
+
     print(separator)
+
+
+def print_metadata(metadata: dict[str, str]) -> None:
+    for key, value in metadata.items():
+        print(f"{key}: {value}")
 
 
 def main() -> None:
@@ -152,19 +188,35 @@ def main() -> None:
         config = load_config()
         llm_client = LLMClient(config)
 
-        response = llm_client.ask(
+        llm_response = llm_client.ask(
             prompt=prompt,
             system_prompt=system_prompt,
+            model=args.model,
             max_output_tokens=args.max_output_tokens,
             temperature=args.temperature,
         )
 
         if response_format == ResponseFormat.JSON:
-            validate_json_response(response)
+            validate_json_response(llm_response)
+
+        metadata = {
+            "model": llm_response.model,
+            "duration_seconds": f"{llm_response.duration_seconds:.2f}",
+            "input_tokens": str(llm_response.input_tokens),
+            "output_tokens": str(llm_response.output_tokens),
+            "total_tokens": str(llm_response.total_tokens),
+            "estimated_cost_usd": (
+                f"{llm_response.estimated_cost_usd:.8f}"
+                if llm_response.estimated_cost_usd is not None
+                else "unknown"
+            ),
+        }
 
         print_response(
-            response=response,
+            response=llm_response.text,
             use_separator=not args.no_separator,
+            metadata=metadata,
+            show_metadata=not args.no_metadata,
         )
 
     except Exception as error:

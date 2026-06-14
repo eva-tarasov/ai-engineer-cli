@@ -155,3 +155,115 @@ Prompt:
 ### Engineering conclusion
 
 Temperature controls variability, not intelligence. For developer tools, low temperature should be the default for correctness-sensitive tasks. Higher temperature can be useful for brainstorming, naming, and alternative ideas, but outputs need stronger review.
+
+## Day 5 — Model selection and response metrics
+
+### Theory notes
+
+Model selection is an engineering trade-off between quality, latency, cost, and reliability.
+
+For this experiment I used `gpt-5-nano`, `gpt-5-mini`, and `gpt-5` because they belong to the same provider family and represent a clear weak/medium/strong progression. This keeps the experiment controlled: same API, same prompt, same parameters, different model tier.
+
+Small models are usually better for simple, frequent, low-risk tasks. Medium models are useful as default balanced options. Strong models are better for complex reasoning, architecture review, code analysis, and tasks where wrong answers are expensive.
+
+Token usage matters because API cost is usually calculated from input and output tokens. Duration matters because CLI tools should feel responsive.
+
+### GPT-5 temperature compatibility note
+
+During testing, GPT-5 models returned an API error when `temperature` was passed:
+
+`Unsupported parameter: 'temperature' is not supported with this model.`
+
+I updated `LLMClient` to send `temperature` only for models that support it. For GPT-5 models, the CLI accepts `--temperature`, but the parameter is not sent to the API.
+
+Engineering conclusion: model capabilities differ, so CLI parameters must be provider/model-aware.
+
+### What I built
+
+- Updated default model to `gpt-5-mini`.
+- Added `--model` CLI argument.
+- Added model override on top of `OPENAI_MODEL`.
+- Added `LLMResponse` dataclass.
+- Added duration measurement.
+- Added token usage extraction.
+- Added estimated cost calculation.
+- Added metadata output.
+- Added `--no-metadata`.
+
+### Commands tested
+
+- `PYTHONPATH=src python -m ai_engineer_cli.cli --help`
+- `PYTHONPATH=src python -m ai_engineer_cli.cli "Кратко объясни, что такое model selection в LLM API" --format markdown --language ru --temperature 0`
+- `PYTHONPATH=src python -m ai_engineer_cli.cli "Кратко объясни, что такое model selection в LLM API" --format markdown --language ru --temperature 0 --model gpt-5-nano`
+- `PYTHONPATH=src python -m ai_engineer_cli.cli "Кратко объясни, что такое model selection в LLM API" --format markdown --language ru --temperature 0 --model gpt-5-mini`
+- `PYTHONPATH=src python -m ai_engineer_cli.cli "Кратко объясни, что такое model selection в LLM API" --format markdown --language ru --temperature 0 --model gpt-5`
+- `PYTHONPATH=src python -m ai_engineer_cli.cli "Кратко объясни, что такое model selection в LLM API" --format markdown --language ru --model gpt-5-mini --no-metadata`
+
+### GPT-5 max_output_tokens observation
+
+During testing, `--max-output-tokens 700` was too low for the Product of Array Except Self task.
+
+Observed result:
+
+| Model | Result with max_output_tokens=700 |
+|---|---|
+| gpt-5-nano | no visible answer |
+| gpt-5-mini | truncated answer |
+| gpt-5 | no visible answer |
+
+Reasoning models may use part of the output token budget for internal reasoning. If the token budget is too small, the response can become incomplete before visible text is produced.
+
+Engineering conclusion: `max_output_tokens` should not be used as a normal “make answer shorter” control for reasoning-heavy tasks. It is a hard safety limit. For model comparison, it is better to remove it or set it high enough.
+
+### Experiment1: weak vs medium vs strong model
+
+Prompt:
+
+`Объясни, как работает задача Product of Array Except Self. Дай Swift-решение, сложность, edge cases и короткое ревью возможных ошибок.`
+
+Fixed parameters:
+
+- format: markdown
+- language: ru
+- temperature: 0
+
+| Model | Tier | Duration | Input tokens | Output tokens | Total tokens | Estimated cost | Quality notes |
+|---|---|---:|---:|---:|---:|---:|---|
+| gpt-5-nano | weak | 22.56 | 79 | 2817 | 2896 | 0.00113075 | Good |
+| gpt-5-mini | medium | 21.62 | 79 | 1928 | 2007 | 0.00387575 | Good |
+| gpt-5 | strong | 23.22 | 79 | 2176 | 2255 | 0.02185875 | Very good |
+
+### Experiment2: medium vs strong model
+
+Prompt:
+
+`Explain how the “Product of Array Except Self” problem works. Provide a Swift solution, the complexity, edge cases, and a brief review of potential errors.`
+
+Fixed parameters:
+
+- format: markdown
+- language: en
+- temperature: 0
+
+| Model | Tier | Duration | Input tokens | Output tokens | Total tokens | Estimated cost | Quality notes |
+|---|---|---:|---:|---:|---:|---:|---|
+| gpt-5-mini | medium | 22.66 | 77 | 1573 | 1650 | 0.00316525 | Good |
+| gpt-5 | strong | 23.05 | 77 | 1964 | 2041 | 0.01973625 | good |
+
+### Quality checklist
+
+| Criterion | gpt-5-nano | gpt-5-mini | gpt-5 |
+|---|---|---|---|
+| No division | yes/no | yes/no | yes/no |
+| Prefix/suffix algorithm | yes | yes | yes |
+| Swift code quality | high | high | high |
+| Complexity explanation | partial | good | good |
+| Handles one zero | yes/no | yes/no | yes/no |
+| Handles two zeros | yes/no | yes/no | yes/no |
+| Useful error review | good | good | good |
+
+### Engineering conclusion
+
+Model choice should depend on the task. Cheap models can be enough for simple explanations and repetitive tasks. Medium models are good default candidates. Strong models are better for complex code review and reasoning, but they cost more and may be slower.
+
+For `ai-engineer-cli`, model selection should be explicit and measurable, not based on vague impressions.
