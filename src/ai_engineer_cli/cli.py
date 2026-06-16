@@ -1,6 +1,7 @@
 import argparse
 import sys
 
+from ai_engineer_cli.agent import Agent
 from ai_engineer_cli.config import load_config
 from ai_engineer_cli.llm_client import LLMClient
 from ai_engineer_cli.prompt_templates import (
@@ -96,6 +97,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Model name. Overrides OPENAI_MODEL from .env.",
     )
 
+    parser.add_argument(
+        "--agent",
+        action="store_true",
+        help="Run request through Agent runtime instead of direct LLMClient call.",
+    )
+
     return parser
 
 
@@ -188,16 +195,30 @@ def main() -> None:
         config = load_config()
         llm_client = LLMClient(config)
 
-        llm_response = llm_client.ask(
-            prompt=prompt,
-            system_prompt=system_prompt,
-            model=args.model,
-            max_output_tokens=args.max_output_tokens,
-            temperature=args.temperature,
-        )
+        if args.agent:
+            agent = Agent(
+                llm_client=llm_client,
+                system_prompt=system_prompt,
+            )
+
+            llm_response = agent.run(
+                user_input=prompt,
+                model=args.model,
+                max_output_tokens=args.max_output_tokens,
+                temperature=args.temperature,
+            )
+
+        else:
+            llm_response = llm_client.ask(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                model=args.model,
+                max_output_tokens=args.max_output_tokens,
+                temperature=args.temperature,
+            )
 
         if response_format == ResponseFormat.JSON:
-            validate_json_response(llm_response)
+            validate_json_response(llm_response.text)
 
         metadata = {
             "model": llm_response.model,

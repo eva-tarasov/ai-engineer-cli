@@ -35,19 +35,22 @@ class LLMClient:
     ) -> LLMResponse:
         selected_model = model or self.config.model
 
+        input_messages = []
+
         if system_prompt:
-            input_messages = [
+            input_messages.append(
                 {
                     "role": "system",
                     "content": system_prompt,
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
-            ]
-        else:
-            input_messages = prompt
+                }
+            )
+
+        input_messages.append(
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        )
 
         request_params = {
             "model": selected_model,
