@@ -88,3 +88,49 @@ class LLMClient:
             total_tokens=total_tokens,
             estimated_cost_usd=estimated_cost_usd,
         )
+
+    def ask_messages(
+        self,
+        messages: list[dict[str, str]],
+        model: str | None = None,
+        max_output_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> LLMResponse:
+        selected_model = model or self.config.model
+
+        request_params = {
+            "model": selected_model,
+            "input": messages,
+        }
+
+        if max_output_tokens is not None:
+            request_params["max_output_tokens"] = max_output_tokens
+
+        if temperature is not None and supports_temperature(selected_model):
+            request_params["temperature"] = temperature
+
+        start_time = time.perf_counter()
+        response = self.client.responses.create(**request_params)
+        duration_seconds = time.perf_counter() - start_time
+
+        usage = getattr(response, "usage", None)
+
+        input_tokens = getattr(usage, "input_tokens", None) if usage else None
+        output_tokens = getattr(usage, "output_tokens", None) if usage else None
+        total_tokens = getattr(usage, "total_tokens", None) if usage else None
+
+        estimated_cost_usd = estimate_cost_usd(
+            model=selected_model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
+
+        return LLMResponse(
+            text=response.output_text,
+            model=selected_model,
+            duration_seconds=duration_seconds,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            estimated_cost_usd=estimated_cost_usd,
+        )

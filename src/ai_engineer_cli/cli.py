@@ -2,7 +2,7 @@ import argparse
 import sys
 
 from ai_engineer_cli.terminal_ui import print_cli_response
-from ai_engineer_cli.agent import Agent
+from ai_engineer_cli.agent import Agent, MessageStore
 from ai_engineer_cli.config import load_config
 from ai_engineer_cli.llm_client import LLMClient
 from ai_engineer_cli.prompt_templates import (
@@ -104,6 +104,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run request through Agent runtime instead of direct LLMClient call.",
     )
 
+    parser.add_argument(
+        "--conversation-id",
+        type=str,
+        default="default",
+        help="Conversation id for persistent agent history.",
+    )
+
+    parser.add_argument(
+        "--clear-history",
+        action="store_true",
+        help="Clear stored history for the selected conversation and exit.",
+    )
+
     return parser
 
 
@@ -165,8 +178,8 @@ def main() -> None:
 
             return
 
-        if not args.prompt:
-            raise ValueError("Prompt is required unless --list-templates is used.")
+        if not args.prompt and not args.clear_history:
+            raise ValueError("Prompt is required unless --list-templates or --clear-history is used.")
 
         if args.max_output_tokens is not None and args.max_output_tokens <= 0:
             raise ValueError("--max-output-tokens must be greater than 0.")
@@ -197,10 +210,18 @@ def main() -> None:
         llm_client = LLMClient(config)
 
         if args.agent:
+            message_store = MessageStore(conversation_id=args.conversation_id)
+
             agent = Agent(
                 llm_client=llm_client,
                 system_prompt=system_prompt,
+                message_store=message_store,
             )
+
+            if args.clear_history:
+                agent.clear_history()
+                print(f"History cleared for conversation: {args.conversation_id}")
+                return
 
             llm_response = agent.run(
                 user_input=prompt,

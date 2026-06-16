@@ -250,3 +250,144 @@ Agent = how to manage behavior around the model
 Day 7 will add persistent context.
 
 The next goal is to make the agent save and restore conversation history between CLI runs.
+
+## Day 7 — Persistent Context
+
+### Goal
+
+Add persistent conversation history to the Agent runtime.
+
+The agent should save messages after each request, load them after restart, and continue the conversation as if it was not stopped.
+
+---
+
+### What was implemented
+
+- Added `Message.from_dict()`.
+- Added `MessageStore`.
+- Added JSON-based conversation storage.
+- Added `LLMClient.ask_messages()`.
+- Updated `Agent` to load and save conversation history.
+- Added `--conversation-id` CLI option.
+- Added `--clear-history` CLI option.
+- Added `.agent_data/` to `.gitignore`.
+
+---
+
+### Storage format
+
+Conversation history is stored in:
+
+```text
+.agent_data/conversations/{conversation_id}.json
+```
+
+Example:
+
+```json
+{
+  "conversation_id": "day7-test",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Меня зовут Евгений. Я строю проект ai-engineer-cli."
+    },
+    {
+      "role": "assistant",
+      "content": "..."
+    }
+  ]
+}
+```
+
+---
+
+### Architecture after Day 7
+
+```text
+CLI
+ └── Agent
+      ├── MessageStore
+      └── LLMClient
+```
+
+Agent flow:
+
+```text
+load history
+→ add user message
+→ send full context to LLM
+→ receive assistant response
+→ save updated history
+→ return response
+```
+
+---
+
+### Test scenario
+
+1. Start a new conversation.
+2. Tell the agent a fact.
+3. Stop the CLI process.
+4. Start a new CLI command with the same `conversation-id`.
+5. Ask the agent to recall the fact.
+6. Confirm that the agent restored context from JSON.
+
+---
+
+### Test commands
+
+First message:
+
+```bash
+PYTHONPATH=src python -m ai_engineer_cli.cli "Меня зовут Евгений. Я строю проект ai-engineer-cli." --agent --conversation-id day7-test --format markdown --language ru
+```
+
+Second message after restart:
+
+```bash
+PYTHONPATH=src python -m ai_engineer_cli.cli "Как меня зовут и какой проект я строю?" --agent --conversation-id day7-test --format markdown --language ru
+```
+
+Inspect stored history:
+
+```bash
+cat .agent_data/conversations/day7-test.json
+```
+
+Clear history:
+
+```bash
+PYTHONPATH=src python -m ai_engineer_cli.cli --agent --conversation-id day7-test --clear-history
+```
+
+---
+
+### Result
+
+- The agent saves conversation history to JSON.
+- The agent loads previous messages after CLI restart.
+- The agent continues the conversation using previous context.
+- The direct mode still works.
+- Conversation history is excluded from git.
+
+---
+
+### Limitations
+
+- The full history is sent to the model on every request.
+- Token usage grows with each new message.
+- There is no token budget yet.
+- There is no context compression yet.
+- There are no memory strategies yet.
+- Long conversations may become expensive or exceed the model context limit.
+
+---
+
+### Key lesson
+
+LLMs are stateless by default.
+
+Persistent agent memory is implemented by the application, not by the model. The agent must explicitly store previous messages and send the relevant context again with every request.
+
+Day 7 turns the agent from a simple wrapper around `LLMClient` into a stateful runtime component.
