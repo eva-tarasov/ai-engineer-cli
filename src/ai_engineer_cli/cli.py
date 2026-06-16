@@ -1,6 +1,7 @@
 import argparse
 import sys
 
+from ai_engineer_cli.terminal_ui import print_cli_response
 from ai_engineer_cli.agent import Agent
 from ai_engineer_cli.config import load_config
 from ai_engineer_cli.llm_client import LLMClient
@@ -222,21 +223,25 @@ def main() -> None:
 
         metadata = {
             "model": llm_response.model,
-            "duration_seconds": f"{llm_response.duration_seconds:.2f}",
-            "input_tokens": str(llm_response.input_tokens),
-            "output_tokens": str(llm_response.output_tokens),
-            "total_tokens": str(llm_response.total_tokens),
-            "estimated_cost_usd": (
-                f"{llm_response.estimated_cost_usd:.8f}"
+            "duration": f"{llm_response.duration_seconds:.2f}s",
+            "tokens": (
+                f"{llm_response.input_tokens} input / "
+                f"{llm_response.output_tokens} output / "
+                f"{llm_response.total_tokens} total"
+            ),
+            "estimated cost": (
+                f"${llm_response.estimated_cost_usd:.8f}"
                 if llm_response.estimated_cost_usd is not None
                 else "unknown"
             ),
         }
 
-        print_response(
+        print_cli_response(
             response=llm_response.text,
-            use_separator=not args.no_separator,
             metadata=metadata,
+            user_input=prompt,
+            mode="agent" if args.agent else "direct",
+            use_boxes=not args.no_separator,
             show_metadata=not args.no_metadata,
         )
 
