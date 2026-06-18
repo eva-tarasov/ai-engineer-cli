@@ -391,3 +391,174 @@ LLMs are stateless by default.
 Persistent agent memory is implemented by the application, not by the model. The agent must explicitly store previous messages and send the relevant context again with every request.
 
 Day 7 turns the agent from a simple wrapper around `LLMClient` into a stateful runtime component.
+
+## Day 8 — Token Tracking
+
+### Goal
+
+Add token tracking to the Agent runtime.
+
+The agent should show how many tokens are used by the current request, stored history, full context, and model response.
+
+---
+
+### What was implemented
+
+- Added `TokenBudget`.
+- Added `ContextTokenStats`.
+- Added estimated token count for the current request.
+- Added estimated token count for conversation history.
+- Added estimated token count for full context.
+- Reused real API token usage for model input/output/total tokens.
+- Added `--show-context-stats`.
+- Added `--context-token-limit`.
+- Added context overflow warning.
+
+---
+
+### Architecture after Day 8
+
+```text
+CLI
+ └── Agent
+      ├── MessageStore
+      ├── TokenBudget
+      └── LLMClient
+```
+
+---
+
+### Token types
+
+Estimated before API call:
+
+```text
+current request tokens
+history tokens
+full context tokens
+```
+
+Reported by API after response:
+
+```text
+input tokens
+output tokens
+total tokens
+```
+
+---
+
+### Why estimates and real usage differ
+
+`TokenBudget` uses an approximate character-based estimate.
+
+The OpenAI API returns real token usage after the request is completed.
+
+Because of this, estimated full context tokens and real input tokens may differ.
+
+The estimate is still useful because it allows the agent to inspect context size before sending the request.
+
+---
+
+### Short dialog experiment
+
+Conversation id:
+
+```text
+day8-short
+```
+
+Commands:
+
+```bash
+bear "Меня зовут Евгений. Я строю ai-engineer-cli." --agent --conversation-id day8-short --format markdown --language ru --show-context-stats
+```
+
+```bash
+bear "Как меня зовут и какой проект я строю?" --agent --conversation-id day8-short --format markdown --language ru --show-context-stats
+```
+
+Observation:
+
+```text
+The second request contains previous user and assistant messages.
+History tokens increased.
+Full context tokens increased.
+API input tokens increased.
+Cost increased.
+```
+
+---
+
+### Long dialog experiment
+
+Conversation id:
+
+```text
+day8-long
+```
+
+The agent was tested with multiple messages about the same project.
+
+Observation:
+
+```text
+With every new message, the stored history grows.
+The full context sent to the model also grows.
+Input tokens and estimated cost increase over time.
+The agent can recall previous facts because they are included in the context.
+```
+
+---
+
+### Context limit experiment
+
+Command example:
+
+```bash
+bear "Проверь, что ты помнишь по проекту." --agent --conversation-id day8-long --format markdown --language ru --show-context-stats --context-token-limit 100
+```
+
+Observation:
+
+```text
+The agent shows a context warning when estimated full context tokens exceed the configured limit.
+```
+
+---
+
+### What breaks when context grows too much
+
+If the context becomes too large, several problems appear:
+
+- requests become more expensive;
+- latency increases;
+- API input token usage grows;
+- the model may eventually reject the request if the context window is exceeded;
+- sending full history becomes inefficient.
+
+In Day 8, the project only detects and displays this problem.
+
+The solution will be implemented later through:
+
+- summary compression;
+- sliding window;
+- sticky facts;
+- memory strategies.
+
+---
+
+### Result
+
+The agent now shows how tokens affect behavior and cost.
+
+Day 8 makes the hidden cost of persistent context visible.
+
+---
+
+### Limitations
+
+- Token counting is approximate before API call.
+- The current implementation does not yet prevent oversized requests.
+- The full history is still sent every time.
+- No compression is applied yet.

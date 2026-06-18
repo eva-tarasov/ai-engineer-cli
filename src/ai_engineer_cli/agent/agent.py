@@ -1,16 +1,18 @@
 from ai_engineer_cli.agent.message import Message
 from ai_engineer_cli.agent.message_store import MessageStore
+from ai_engineer_cli.agent.token_budget import ContextTokenStats, TokenBudget
 from ai_engineer_cli.llm_client import LLMClient, LLMResponse
 
 
 class Agent:
     """
-    Minimal persistent agent runtime.
+    Persistent agent runtime.
 
     Agent is responsible for:
     - receiving user input;
     - loading conversation history;
     - preparing messages;
+    - estimating context token usage;
     - calling LLMClient;
     - saving updated history;
     - returning LLMResponse.
@@ -21,10 +23,13 @@ class Agent:
         llm_client: LLMClient,
         system_prompt: str | None = None,
         message_store: MessageStore | None = None,
+        token_budget: TokenBudget | None = None,
     ) -> None:
         self.llm_client = llm_client
         self.system_prompt = system_prompt
         self.message_store = message_store
+        self.token_budget = token_budget or TokenBudget()
+        self.last_context_token_stats: ContextTokenStats | None = None
 
     def run(
         self,
@@ -43,6 +48,12 @@ class Agent:
         messages_for_llm = self._build_messages_for_llm(
             history=history,
             user_message=user_message,
+        )
+
+        self.last_context_token_stats = self.token_budget.build_context_stats(
+            current_request=user_message,
+            history=history,
+            full_context=messages_for_llm,
         )
 
         response = self.llm_client.ask_messages(

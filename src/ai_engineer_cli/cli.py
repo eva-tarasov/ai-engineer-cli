@@ -117,6 +117,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Clear stored history for the selected conversation and exit.",
     )
 
+    parser.add_argument(
+        "--show-context-stats",
+        action="store_true",
+        help="Show estimated token usage for agent context.",
+    )
+
+    parser.add_argument(
+        "--context-token-limit",
+        type=int,
+        default=None,
+        help="Warn when estimated full context tokens exceed this limit.",
+    )
+
     return parser
 
 
@@ -184,8 +197,17 @@ def main() -> None:
         if args.max_output_tokens is not None and args.max_output_tokens <= 0:
             raise ValueError("--max-output-tokens must be greater than 0.")
 
+        if args.context_token_limit is not None and args.context_token_limit <= 0:
+            raise ValueError("--context-token-limit must be greater than 0.")
+
+        if args.context_token_limit is not None and not args.agent:
+            raise ValueError("--context-token-limit can only be used with --agent.")
+
         if args.temperature is not None and not 0 <= args.temperature <= 2:
             raise ValueError("--temperature must be between 0 and 2.")
+
+        if args.show_context_stats and not args.agent:
+            raise ValueError("--show-context-stats can only be used with --agent.")
 
         response_format = ResponseFormat(args.format)
         response_language = ResponseLanguage(args.language)
@@ -209,6 +231,8 @@ def main() -> None:
         config = load_config()
         llm_client = LLMClient(config)
 
+        context_token_stats = None
+
         if args.agent:
             message_store = MessageStore(conversation_id=args.conversation_id)
 
@@ -229,6 +253,8 @@ def main() -> None:
                 max_output_tokens=args.max_output_tokens,
                 temperature=args.temperature,
             )
+
+            context_token_stats = agent.last_context_token_stats
 
         else:
             llm_response = llm_client.ask(
@@ -256,6 +282,29 @@ def main() -> None:
                 else "unknown"
             ),
         }
+
+        if args.show_context_stats and context_token_stats:
+            metadata.update(
+                {
+                    "context messages": str(context_token_stats.full_context_messages_count),
+                    "history messages": str(context_token_stats.history_messages_count),
+                    "estimated current request tokens": str(
+                        context_token_stats.current_request_tokens
+                    ),
+                    "estimated history tokens": str(context_token_stats.history_tokens),
+                    "estimated full context tokens": str(
+                        context_token_stats.full_context_tokens
+                    ),
+                }
+            )
+
+        if args.context_token_limit is not None and context_token_stats:
+            if context_token_stats.full_context_tokens > args.context_token_limit:
+                metadata["context warning"] = (
+                    f"estimated context tokens exceeded limit "
+                    f"({context_token_stats.full_context_tokens} > "
+                    f"{args.context_token_limit})"
+                )
 
         print_cli_response(
             response=llm_response.text,
