@@ -562,3 +562,182 @@ Day 8 makes the hidden cost of persistent context visible.
 - The current implementation does not yet prevent oversized requests.
 - The full history is still sent every time.
 - No compression is applied yet.
+
+## Day 9 — Summary Compression
+
+### Goal
+
+Add summary-based context compression to the Agent runtime.
+
+The agent should keep the last N messages as-is, compress older messages into a summary, store the summary separately, and send summary + recent messages instead of full history.
+
+---
+
+### What was implemented
+
+- Added `SummaryManager`.
+- Added summary prompt in `src/ai_engineer_cli/prompts/summarize_history.md`.
+- Updated `MessageStore` to store `summary` together with messages.
+- Updated `Agent` to support summary-based context compression.
+- Added `--use-summary`.
+- Added `--recent-messages`.
+- Added `--summary-every`.
+- Added summary mode metadata.
+
+---
+
+### Architecture after Day 9
+
+```text
+CLI
+ └── Agent
+      ├── MessageStore
+      ├── SummaryManager
+      ├── TokenBudget
+      └── LLMClient
+```
+
+---
+
+### Context without compression
+
+```text
+system prompt
++ full history
++ current user message
+```
+
+---
+
+### Context with summary compression
+
+```text
+system prompt
++ conversation summary
++ last N messages
++ current user message
+```
+
+---
+
+### Storage format
+
+Conversation data is stored in:
+
+```text
+.agent_data/conversations/{conversation_id}.json
+```
+
+Example:
+
+```json
+{
+  "conversation_id": "day9-summary",
+  "summary": "User is Evgenii. He is building ai-engineer-cli...",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Recent message..."
+    },
+    {
+      "role": "assistant",
+      "content": "Recent response..."
+    }
+  ]
+}
+```
+
+---
+
+### Test setup
+
+Full history conversation:
+
+```text
+day9-full
+```
+
+Summary compression conversation:
+
+```text
+day9-summary
+```
+
+Summary settings used for testing:
+
+```text
+--use-summary --summary-every 6 --recent-messages 4
+```
+
+---
+
+### Quality comparison
+
+Full history mode:
+
+```text
+Keeps all details exactly as they were.
+Provides stronger recall of precise wording.
+Uses more input tokens as the conversation grows.
+```
+
+Summary mode:
+
+```text
+Keeps main goals, decisions, constraints, and progress.
+Uses fewer context tokens after compression.
+May lose small details or exact wording.
+Requires an additional LLM call to create/update the summary.
+```
+
+---
+
+### Token comparison
+
+Observed fields:
+
+```text
+estimated full context tokens
+input tokens
+total tokens
+estimated cost
+```
+
+Result:
+
+```text
+Summary mode reduces the amount of old history sent to the model.
+The longer the conversation, the more useful summary compression becomes.
+```
+
+---
+
+### Important tradeoff
+
+Summary compression is not free.
+
+It saves tokens in future requests, but creating the summary requires an additional LLM call.
+
+This strategy is useful for long-running conversations, not for very short ones.
+
+---
+
+### Result
+
+The agent can now compress old conversation history into summary and continue the conversation using:
+
+```text
+summary + recent messages
+```
+
+This makes persistent context cheaper and more scalable.
+
+---
+
+### Limitations
+
+- Summary quality depends on the model.
+- Important details may be lost during compression.
+- The compression threshold is message-count based, not token-budget based.
+- There is no manual summary editing yet.
+- There are no multiple context strategies yet.

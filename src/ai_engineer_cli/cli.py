@@ -2,7 +2,7 @@ import argparse
 import sys
 
 from ai_engineer_cli.terminal_ui import print_cli_response
-from ai_engineer_cli.agent import Agent, MessageStore
+from ai_engineer_cli.agent import Agent, MessageStore, SummaryManager
 from ai_engineer_cli.config import load_config
 from ai_engineer_cli.llm_client import LLMClient
 from ai_engineer_cli.prompt_templates import (
@@ -130,6 +130,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="Warn when estimated full context tokens exceed this limit.",
     )
 
+    parser.add_argument(
+        "--use-summary",
+        action="store_true",
+        help="Enable summary-based context compression for agent mode.",
+    )
+
+    parser.add_argument(
+        "--recent-messages",
+        type=int,
+        default=6,
+        help="Number of recent messages to keep as-is when summary compression is enabled.",
+    )
+
+    parser.add_argument(
+        "--summary-every",
+        type=int,
+        default=10,
+        help="Compress history into summary when stored message count reaches this value.",
+    )
+
     return parser
 
 
@@ -209,6 +229,18 @@ def main() -> None:
         if args.show_context_stats and not args.agent:
             raise ValueError("--show-context-stats can only be used with --agent.")
 
+        if args.use_summary and not args.agent:
+            raise ValueError("--use-summary can only be used with --agent.")
+
+        if args.recent_messages <= 0:
+            raise ValueError("--recent-messages must be greater than 0.")
+
+        if args.summary_every <= 0:
+            raise ValueError("--summary-every must be greater than 0.")
+
+        if args.recent_messages >= args.summary_every:
+            raise ValueError("--recent-messages must be less than --summary-every.")
+
         response_format = ResponseFormat(args.format)
         response_language = ResponseLanguage(args.language)
 
@@ -236,10 +268,16 @@ def main() -> None:
         if args.agent:
             message_store = MessageStore(conversation_id=args.conversation_id)
 
+            summary_manager = SummaryManager(llm_client=llm_client) if args.use_summary else None
+
             agent = Agent(
                 llm_client=llm_client,
                 system_prompt=system_prompt,
                 message_store=message_store,
+                summary_manager=summary_manager,
+                use_summary=args.use_summary,
+                recent_messages=args.recent_messages,
+                summary_every=args.summary_every,
             )
 
             if args.clear_history:
@@ -282,6 +320,13 @@ def main() -> None:
                 else "unknown"
             ),
         }
+
+        if args.agent:
+            metadata["summary enabled"] = str(args.use_summary)
+
+            if args.use_summary:
+                metadata["recent messages"] = str(args.recent_messages)
+                metadata["summary every"] = str(args.summary_every)
 
         if args.show_context_stats and context_token_stats:
             metadata.update(
