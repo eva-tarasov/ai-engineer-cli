@@ -741,3 +741,121 @@ This makes persistent context cheaper and more scalable.
 - The compression threshold is message-count based, not token-budget based.
 - There is no manual summary editing yet.
 - There are no multiple context strategies yet.
+
+## Day 9.5 — Conversation Config
+
+### Goal
+
+Reduce CLI friction by storing conversation-level settings in the same JSON file as messages and summary.
+
+Instead of passing many flags on every request, the user can initialize a conversation once and then continue it using only `--conversation-id`.
+
+---
+
+### What was implemented
+
+- Added `ConversationConfig`.
+- Stored `config`, `summary`, and `messages` in one JSON file per conversation.
+- Added config-aware CLI flag merging.
+- Changed config-aware argparse defaults to `None`.
+- Added `--init-conversation`.
+- Added `--show-conversation-config`.
+- Added `--delete-conversation`.
+- Changed `--clear-history` to preserve config and clear only messages and summary.
+
+---
+
+### Storage format
+
+One file stores one conversation:
+
+```text
+.agent_data/conversations/{conversation_id}.json
+```
+
+Example:
+
+```json
+{
+  "conversation_id": "day9-summary",
+  "config": {
+    "agent": true,
+    "response_format": "markdown",
+    "language": "ru",
+    "show_context_stats": true,
+    "use_summary": true,
+    "summary_every": 6,
+    "recent_messages": 4,
+    "context_token_limit": null,
+    "model": null,
+    "max_output_tokens": null,
+    "temperature": null,
+    "stop_instruction": null
+  },
+  "summary": null,
+  "messages": []
+}
+```
+
+---
+
+### Config merge order
+
+Effective runtime settings are resolved using this priority:
+
+```text
+1. Explicit CLI flags
+2. Stored conversation config
+3. Hardcoded defaults
+```
+
+This allows a conversation to have persistent settings while still allowing one-off CLI overrides.
+
+---
+
+### Example
+
+Initialize conversation:
+
+```bash
+bear --init-conversation day9-summary \
+  --agent \
+  --format markdown \
+  --language ru \
+  --show-context-stats \
+  --use-summary \
+  --summary-every 6 \
+  --recent-messages 4
+```
+
+Continue conversation:
+
+```bash
+bear "Кратко перечисли, что ты помнишь обо мне и проекте." --conversation-id day9-summary
+```
+
+Show config:
+
+```bash
+bear --show-conversation-config --conversation-id day9-summary
+```
+
+Clear runtime state but preserve config:
+
+```bash
+bear --clear-history --conversation-id day9-summary
+```
+
+Delete full conversation:
+
+```bash
+bear --delete-conversation --conversation-id day9-summary
+```
+
+---
+
+### Result
+
+Conversation settings are now persistent.
+
+The CLI becomes easier to use for long-running agent sessions, and the project moves closer to a real agent runtime instead of a one-shot command wrapper.

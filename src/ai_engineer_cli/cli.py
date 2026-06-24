@@ -2,7 +2,7 @@ import argparse
 import sys
 
 from ai_engineer_cli.terminal_ui import print_cli_response
-from ai_engineer_cli.agent import Agent, MessageStore, SummaryManager
+from ai_engineer_cli.agent import Agent, ConversationConfig, MessageStore, SummaryManager
 from ai_engineer_cli.config import load_config
 from ai_engineer_cli.llm_client import LLMClient
 from ai_engineer_cli.prompt_templates import (
@@ -34,14 +34,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--format",
         choices=[item.value for item in ResponseFormat],
-        default=ResponseFormat.TEXT.value,
+        default=None,
         help="Response format: text, markdown, or json.",
     )
 
     parser.add_argument(
         "--language",
         choices=[item.value for item in ResponseLanguage],
-        default=ResponseLanguage.RU.value,
+        default=None,
         help="Response language: ru or en.",
     )
 
@@ -101,6 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--agent",
         action="store_true",
+        default=None,
         help="Run request through Agent runtime instead of direct LLMClient call.",
     )
 
@@ -120,6 +121,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--show-context-stats",
         action="store_true",
+        default=None,
         help="Show estimated token usage for agent context.",
     )
 
@@ -133,21 +135,41 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--use-summary",
         action="store_true",
+        default=None,
         help="Enable summary-based context compression for agent mode.",
     )
 
     parser.add_argument(
         "--recent-messages",
         type=int,
-        default=6,
+        default=None,
         help="Number of recent messages to keep as-is when summary compression is enabled.",
     )
 
     parser.add_argument(
         "--summary-every",
         type=int,
-        default=10,
+        default=None,
         help="Compress history into summary when stored message count reaches this value.",
+    )
+
+    parser.add_argument(
+        "--init-conversation",
+        type=str,
+        default=None,
+        help="Create or update config for a conversation and exit.",
+    )
+
+    parser.add_argument(
+        "--show-conversation-config",
+        action="store_true",
+        help="Show stored config for the selected conversation and exit.",
+    )
+
+    parser.add_argument(
+        "--delete-conversation",
+        action="store_true",
+        help="Delete the selected conversation file, including config, summary, and messages.",
     )
 
     return parser
@@ -192,6 +214,43 @@ def print_metadata(metadata: dict[str, str]) -> None:
     for key, value in metadata.items():
         print(f"{key}: {value}")
 
+def pick(cli_value, config_value, default_value):
+    if cli_value is not None:
+        return cli_value
+
+    if config_value is not None:
+        return config_value
+
+    return default_value
+
+
+def print_conversation_config(
+    conversation_id: str,
+    config: ConversationConfig,
+) -> None:
+    print(f"conversation_id: {conversation_id}")
+
+    for key, value in config.to_dict().items():
+        print(f"{key}: {value}")
+
+
+def build_conversation_config_from_args(args) -> ConversationConfig:
+    return ConversationConfig(
+        agent=True if args.agent is None else args.agent,
+        response_format=args.format or "markdown",
+        language=args.language or "ru",
+        show_context_stats=(
+            True if args.show_context_stats is None else args.show_context_stats
+        ),
+        use_summary=True if args.use_summary is None else args.use_summary,
+        summary_every=args.summary_every or 10,
+        recent_messages=args.recent_messages or 6,
+        context_token_limit=args.context_token_limit,
+        model=args.model,
+        max_output_tokens=args.max_output_tokens,
+        temperature=args.temperature,
+        stop_instruction=args.stop_instruction,
+    )
 
 def main() -> None:
     parser = build_parser()
@@ -211,44 +270,97 @@ def main() -> None:
 
             return
 
-        if not args.prompt and not args.clear_history:
-            raise ValueError("Prompt is required unless --list-templates or --clear-history is used.")
+        conversation_id = args.init_conversation or args.conversation_id
+        message_store = MessageStore(conversation_id=conversation_id)
+        stored_config = message_store.load_config()
 
-        if args.max_output_tokens is not None and args.max_output_tokens <= 0:
+        if args.init_conversation:
+            conversation_config = build_conversation_config_from_args(args)
+            message_store.save_config(conversation_config)
+
+            print(f"Conversation config saved: {args.init_conversation}")
+            print_conversation_config(args.init_conversation, conversation_config)
+            return
+
+        if args.show_conversation_config:
+            print_conversation_config(conversation_id, stored_config)
+            return
+
+        if args.delete_conversation:
+            message_store.delete()
+            print(f"Conversation deleted: {conversation_id}")
+            return
+
+        effective_agent = pick(args.agent, stored_config.agent, False)
+        effective_format = pick(args.format, stored_config.response_format, ResponseFormat.TEXT.value)
+        effective_language = pick(args.language, stored_config.language, ResponseLanguage.RU.value)
+        effective_show_context_stats = pick(
+            args.show_context_stats,
+            stored_config.show_context_stats,
+            False,
+        )
+        effective_use_summary = pick(args.use_summary, stored_config.use_summary, False)
+        effective_summary_every = pick(args.summary_every, stored_config.summary_every, 10)
+        effective_recent_messages = pick(args.recent_messages, stored_config.recent_messages, 6)
+        effective_context_token_limit = pick(
+            args.context_token_limit,
+            stored_config.context_token_limit,
+            None,
+        )
+        effective_model = pick(args.model, stored_config.model, None)
+        effective_max_output_tokens = pick(
+            args.max_output_tokens,
+            stored_config.max_output_tokens,
+            None,
+        )
+        effective_temperature = pick(args.temperature, stored_config.temperature, None)
+        effective_stop_instruction = pick(
+            args.stop_instruction,
+            stored_config.stop_instruction,
+            None,
+        )
+
+        if not args.prompt and not args.clear_history:
+            raise ValueError(
+                "Prompt is required unless --list-templates, --init-conversation, "
+                "--show-conversation-config, --delete-conversation, or --clear-history is used."
+            )
+
+        if effective_max_output_tokens is not None and effective_max_output_tokens <= 0:
             raise ValueError("--max-output-tokens must be greater than 0.")
 
-        if args.context_token_limit is not None and args.context_token_limit <= 0:
-            raise ValueError("--context-token-limit must be greater than 0.")
-
-        if args.context_token_limit is not None and not args.agent:
-            raise ValueError("--context-token-limit can only be used with --agent.")
-
-        if args.temperature is not None and not 0 <= args.temperature <= 2:
+        if effective_temperature is not None and not 0 <= effective_temperature <= 2:
             raise ValueError("--temperature must be between 0 and 2.")
 
-        if args.show_context_stats and not args.agent:
-            raise ValueError("--show-context-stats can only be used with --agent.")
+        if effective_context_token_limit is not None and effective_context_token_limit <= 0:
+            raise ValueError("--context-token-limit must be greater than 0.")
 
-        if args.use_summary and not args.agent:
-            raise ValueError("--use-summary can only be used with --agent.")
+        if effective_show_context_stats and not effective_agent:
+            raise ValueError("--show-context-stats can only be used with agent mode.")
 
-        if args.recent_messages <= 0:
+        if effective_context_token_limit is not None and not effective_agent:
+            raise ValueError("--context-token-limit can only be used with agent mode.")
+
+        if effective_use_summary and not effective_agent:
+            raise ValueError("--use-summary can only be used with agent mode.")
+
+        if effective_recent_messages <= 0:
             raise ValueError("--recent-messages must be greater than 0.")
 
-        if args.summary_every <= 0:
+        if effective_summary_every <= 0:
             raise ValueError("--summary-every must be greater than 0.")
 
-        if args.recent_messages >= args.summary_every:
+        if effective_use_summary and effective_recent_messages >= effective_summary_every:
             raise ValueError("--recent-messages must be less than --summary-every.")
 
-        response_format = ResponseFormat(args.format)
-        response_language = ResponseLanguage(args.language)
+        response_format = ResponseFormat(effective_format)
+        response_language = ResponseLanguage(effective_language)
 
         system_prompt = build_system_prompt(
             response_format=response_format,
             language=response_language,
-            max_output_tokens=args.max_output_tokens,
-            stop_instruction=args.stop_instruction,
+            max_output_tokens=effective_max_output_tokens,
+            stop_instruction=effective_stop_instruction,
         )
 
         prompt = args.prompt
@@ -265,31 +377,29 @@ def main() -> None:
 
         context_token_stats = None
 
-        if args.agent:
-            message_store = MessageStore(conversation_id=args.conversation_id)
-
-            summary_manager = SummaryManager(llm_client=llm_client) if args.use_summary else None
+        if effective_agent:
+            summary_manager = SummaryManager(llm_client=llm_client) if effective_use_summary else None
 
             agent = Agent(
                 llm_client=llm_client,
                 system_prompt=system_prompt,
                 message_store=message_store,
                 summary_manager=summary_manager,
-                use_summary=args.use_summary,
-                recent_messages=args.recent_messages,
-                summary_every=args.summary_every,
+                use_summary=effective_use_summary,
+                recent_messages=effective_recent_messages,
+                summary_every=effective_summary_every,
             )
 
             if args.clear_history:
                 agent.clear_history()
-                print(f"History cleared for conversation: {args.conversation_id}")
+                print(f"History cleared for conversation: {conversation_id}")
                 return
 
             llm_response = agent.run(
                 user_input=prompt,
-                model=args.model,
-                max_output_tokens=args.max_output_tokens,
-                temperature=args.temperature,
+                model=effective_model,
+                max_output_tokens=effective_max_output_tokens,
+                temperature=effective_temperature,
             )
 
             context_token_stats = agent.last_context_token_stats
@@ -298,15 +408,16 @@ def main() -> None:
             llm_response = llm_client.ask(
                 prompt=prompt,
                 system_prompt=system_prompt,
-                model=args.model,
-                max_output_tokens=args.max_output_tokens,
-                temperature=args.temperature,
+                model=effective_model,
+                max_output_tokens=effective_max_output_tokens,
+                temperature=effective_temperature,
             )
 
         if response_format == ResponseFormat.JSON:
             validate_json_response(llm_response.text)
 
         metadata = {
+            "mode": "agent" if effective_agent else "direct",
             "model": llm_response.model,
             "duration": f"{llm_response.duration_seconds:.2f}s",
             "tokens": (
@@ -321,14 +432,15 @@ def main() -> None:
             ),
         }
 
-        if args.agent:
-            metadata["summary enabled"] = str(args.use_summary)
+        if effective_agent:
+            metadata["conversation_id"] = conversation_id
+            metadata["summary enabled"] = str(effective_use_summary)
 
-            if args.use_summary:
-                metadata["recent messages"] = str(args.recent_messages)
-                metadata["summary every"] = str(args.summary_every)
+            if effective_use_summary:
+                metadata["recent messages"] = str(effective_recent_messages)
+                metadata["summary every"] = str(effective_summary_every)
 
-        if args.show_context_stats and context_token_stats:
+        if effective_show_context_stats and context_token_stats:
             metadata.update(
                 {
                     "context messages": str(context_token_stats.full_context_messages_count),
@@ -343,19 +455,19 @@ def main() -> None:
                 }
             )
 
-        if args.context_token_limit is not None and context_token_stats:
-            if context_token_stats.full_context_tokens > args.context_token_limit:
+        if effective_context_token_limit is not None and context_token_stats:
+            if context_token_stats.full_context_tokens > effective_context_token_limit:
                 metadata["context warning"] = (
                     f"estimated context tokens exceeded limit "
                     f"({context_token_stats.full_context_tokens} > "
-                    f"{args.context_token_limit})"
+                    f"{effective_context_token_limit})"
                 )
 
         print_cli_response(
             response=llm_response.text,
             metadata=metadata,
             user_input=prompt,
-            mode="agent" if args.agent else "direct",
+            mode="agent" if effective_agent else "direct",
             use_boxes=not args.no_separator,
             show_metadata=not args.no_metadata,
         )
