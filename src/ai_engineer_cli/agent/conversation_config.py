@@ -12,6 +12,8 @@ class ConversationConfig:
     summary_every: int = 10
     recent_messages: int = 6
     context_token_limit: int | None = None
+    context_strategy: str = "full"
+    branch_id: str = "main"
     model: str | None = None
     max_output_tokens: int | None = None
     temperature: float | None = None
@@ -34,6 +36,8 @@ class ConversationConfig:
             summary_every=data.get("summary_every", 10),
             recent_messages=data.get("recent_messages", 6),
             context_token_limit=data.get("context_token_limit"),
+            context_strategy=data.get("context_strategy", "full"),
+            branch_id=data.get("branch_id", "main"),
             model=data.get("model"),
             max_output_tokens=data.get("max_output_tokens"),
             temperature=data.get("temperature"),

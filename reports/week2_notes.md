@@ -859,3 +859,131 @@ bear --delete-conversation --conversation-id day9-summary
 Conversation settings are now persistent.
 
 The CLI becomes easier to use for long-running agent sessions, and the project moves closer to a real agent runtime instead of a one-shot command wrapper.
+
+## Day 10 — Context Strategies
+
+### Goal
+
+Add multiple context management strategies to the Agent runtime and allow switching between them.
+
+Implemented strategies:
+
+- Sliding Window
+- Sticky Facts / Key-Value Memory
+- Branching
+
+---
+
+### What was implemented
+
+- Added `ContextStrategy` interface.
+- Added `SlidingWindowStrategy`.
+- Added `StickyFactsStrategy`.
+- Added `BranchingStrategy`.
+- Added `FactsManager`.
+- Added facts extraction prompt.
+- Added facts storage to conversation JSON.
+- Added branch storage to conversation JSON.
+- Added `--context-strategy`.
+- Added `--branch`.
+- Added `--create-branch`.
+- Added `--from-branch`.
+- Added `--list-branches`.
+
+---
+
+### Strategy 1 — Sliding Window
+
+Context structure:
+
+```text
+system prompt
++ last N messages
++ current user message
+```
+
+Result:
+
+```text
+Cheap and predictable, but old facts can be lost.
+```
+
+---
+
+### Strategy 2 — Sticky Facts
+
+Context structure:
+
+```text
+system prompt
++ sticky facts
++ last N messages
++ current user message
+```
+
+Facts example:
+
+```json
+{
+  "project": "ai-engineer-cli",
+  "goal": "Build a CLI developer assistant",
+  "architecture_rule": "LLMClient must remain a low-level API client"
+}
+```
+
+Result:
+
+```text
+Better long-term stability than sliding window.
+Good for goals, decisions, constraints, and project memory.
+```
+
+---
+
+### Strategy 3 — Branching
+
+Context structure:
+
+```text
+system prompt
++ selected branch messages
++ current user message
+```
+
+Branches example:
+
+```text
+main
+json-storage
+sqlite-storage
+```
+
+Result:
+
+```text
+Useful for comparing alternative solutions without mixing their histories.
+```
+
+---
+
+### Comparison
+
+| Strategy | Quality | Stability | Token usage | UX |
+|---|---|---|---|---|
+| Sliding Window | Good for short local tasks | Weak for old facts | Low | Simple |
+| Sticky Facts | Good for project memory | Medium/High | Medium | Convenient |
+| Branching | Good for alternatives | High per branch | Depends on branch length | Powerful but explicit |
+
+---
+
+### Key lesson
+
+There is no universal best context strategy.
+
+Different workflows need different context policies:
+
+- Sliding Window is good for short, cheap interactions.
+- Sticky Facts is good for long-running project memory.
+- Branching is good for comparing alternative implementation paths.
+
+Day 10 turns the agent from a single-context runtime into a configurable context management system.

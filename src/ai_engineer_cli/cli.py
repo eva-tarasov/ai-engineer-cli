@@ -2,7 +2,13 @@ import argparse
 import sys
 
 from ai_engineer_cli.terminal_ui import print_cli_response
-from ai_engineer_cli.agent import Agent, ConversationConfig, MessageStore, SummaryManager
+from ai_engineer_cli.agent import (
+    Agent,
+    ConversationConfig,
+    FactsManager,
+    MessageStore,
+    SummaryManager,
+)
 from ai_engineer_cli.config import load_config
 from ai_engineer_cli.llm_client import LLMClient
 from ai_engineer_cli.prompt_templates import (
@@ -172,6 +178,40 @@ def build_parser() -> argparse.ArgumentParser:
         help="Delete the selected conversation file, including config, summary, and messages.",
     )
 
+    parser.add_argument(
+        "--context-strategy",
+        choices=["full", "summary", "sliding-window", "sticky-facts", "branching"],
+        default=None,
+        help="Context management strategy.",
+    )
+
+    parser.add_argument(
+        "--branch",
+        type=str,
+        default=None,
+        help="Branch id for branching strategy.",
+    )
+
+    parser.add_argument(
+        "--create-branch",
+        type=str,
+        default=None,
+        help="Create a new branch for the selected conversation and exit.",
+    )
+
+    parser.add_argument(
+        "--from-branch",
+        type=str,
+        default="main",
+        help="Source branch id when creating a new branch.",
+    )
+
+    parser.add_argument(
+        "--list-branches",
+        action="store_true",
+        help="List branches for the selected conversation and exit.",
+    )
+
     return parser
 
 
@@ -235,6 +275,11 @@ def print_conversation_config(
 
 
 def build_conversation_config_from_args(args) -> ConversationConfig:
+    context_strategy = args.context_strategy
+
+    if context_strategy is None and args.use_summary:
+        context_strategy = "summary"
+
     return ConversationConfig(
         agent=True if args.agent is None else args.agent,
         response_format=args.format or "markdown",
@@ -246,6 +291,8 @@ def build_conversation_config_from_args(args) -> ConversationConfig:
         summary_every=args.summary_every or 10,
         recent_messages=args.recent_messages or 6,
         context_token_limit=args.context_token_limit,
+        context_strategy=context_strategy or "full",
+        branch_id=args.branch or "main",
         model=args.model,
         max_output_tokens=args.max_output_tokens,
         temperature=args.temperature,
@@ -291,6 +338,32 @@ def main() -> None:
             print(f"Conversation deleted: {conversation_id}")
             return
 
+        if args.list_branches:
+            branches = message_store.list_branches()
+
+            if not branches:
+                print("No branches found.")
+                return
+
+            print(f"Branches for conversation: {conversation_id}")
+            for branch in branches:
+                print(f"- {branch}")
+
+            return
+
+        if args.create_branch:
+            message_store.create_branch(
+                branch_id=args.create_branch,
+                from_branch_id=args.from_branch,
+            )
+
+            print(
+                f"Branch created: {args.create_branch} "
+                f"from {args.from_branch} "
+                f"in conversation {conversation_id}"
+            )
+            return
+
         effective_agent = pick(args.agent, stored_config.agent, False)
         effective_format = pick(args.format, stored_config.response_format, ResponseFormat.TEXT.value)
         effective_language = pick(args.language, stored_config.language, ResponseLanguage.RU.value)
@@ -319,6 +392,17 @@ def main() -> None:
             stored_config.stop_instruction,
             None,
         )
+
+        effective_context_strategy = pick(
+            args.context_strategy,
+            stored_config.context_strategy,
+            "full",
+        )
+
+        if effective_context_strategy == "summary":
+            effective_use_summary = True
+
+        effective_branch_id = pick(args.branch, stored_config.branch_id, "main")
 
         if not args.prompt and not args.clear_history:
             raise ValueError(
@@ -353,6 +437,26 @@ def main() -> None:
         if effective_use_summary and effective_recent_messages >= effective_summary_every:
             raise ValueError("--recent-messages must be less than --summary-every.")
 
+        valid_context_strategies = {
+            "full",
+            "summary",
+            "sliding-window",
+            "sticky-facts",
+            "branching",
+        }
+
+        if effective_context_strategy not in valid_context_strategies:
+            raise ValueError(f"Unsupported context strategy: {effective_context_strategy}")
+
+        if effective_context_strategy != "branching" and args.branch is not None:
+            raise ValueError("--branch can only be used with --context-strategy branching.")
+
+        if args.create_branch and not args.conversation_id:
+            raise ValueError("--create-branch requires --conversation-id.")
+
+        if args.list_branches and not args.conversation_id:
+            raise ValueError("--list-branches requires --conversation-id.")
+
         response_format = ResponseFormat(effective_format)
         response_language = ResponseLanguage(effective_language)
 
@@ -379,15 +483,23 @@ def main() -> None:
 
         if effective_agent:
             summary_manager = SummaryManager(llm_client=llm_client) if effective_use_summary else None
+            facts_manager = (
+                FactsManager(llm_client=llm_client)
+                if effective_context_strategy == "sticky-facts"
+                else None
+            )
 
             agent = Agent(
                 llm_client=llm_client,
                 system_prompt=system_prompt,
                 message_store=message_store,
                 summary_manager=summary_manager,
+                facts_manager=facts_manager,
                 use_summary=effective_use_summary,
                 recent_messages=effective_recent_messages,
                 summary_every=effective_summary_every,
+                context_strategy=effective_context_strategy,
+                branch_id=effective_branch_id,
             )
 
             if args.clear_history:
@@ -435,10 +547,17 @@ def main() -> None:
         if effective_agent:
             metadata["conversation_id"] = conversation_id
             metadata["summary enabled"] = str(effective_use_summary)
+            metadata["context strategy"] = effective_context_strategy
 
             if effective_use_summary:
                 metadata["recent messages"] = str(effective_recent_messages)
                 metadata["summary every"] = str(effective_summary_every)
+
+            if effective_context_strategy == "branching":
+                metadata["branch"] = effective_branch_id
+
+            if effective_context_strategy == "sticky-facts":
+                metadata["facts enabled"] = "True"
 
         if effective_show_context_stats and context_token_stats:
             metadata.update(
