@@ -1,27 +1,50 @@
 # ai-engineer-cli
 
-CLI-инструмент для работы с LLM как с инженерным инструментом.
+CLI-инструмент для работы с LLM как с инженерным помощником.
 
-Проект создаётся в рамках 7-недельного курса по управлению LLM/API/агентами/CLI/RAG/MCP/локальными моделями. Цель — постепенно развить простой LLM API client в developer assistant.
+Проект создаётся в рамках 7-недельного курса по LLM/API/агентам/CLI/RAG/MCP/локальным моделям. Идея проекта — постепенно развить простой LLM API client в управляемого developer assistant, который умеет работать с историей диалога, конфигами сессий, стратегиями контекста и инженерными сценариями.
+
+---
 
 ## Current status
 
-На конец Week 1 проект умеет:
+На конец **Week 2 / Agent Core** проект умеет:
 
 - отправлять prompt в LLM API;
+- выбирать модель через `.env` или CLI-флаг `--model`;
 - выбирать формат ответа: `text`, `markdown`, `json`;
+- валидировать JSON-ответы модели;
 - выбирать язык ответа: `ru`, `en`;
 - использовать prompt templates;
 - задавать ограничение на output tokens;
-- добавлять инструкцию завершения ответа;
+- добавлять stop instruction;
 - управлять `temperature` для моделей, которые это поддерживают;
-- выбирать модель через CLI;
-- выводить metadata по запросу;
-- измерять время ответа;
-- показывать token usage;
-- считать примерную стоимость запроса.
+- выводить metadata по запросу: модель, время, токены, примерная стоимость;
+- форматировать ответ в терминале в читаемые блоки;
+- запускаться в direct mode или agent mode;
+- хранить историю диалога между запусками CLI;
+- хранить настройки диалога в conversation config;
+- очищать историю диалога, не удаляя config;
+- полностью удалять conversation file;
+- считать примерное количество токенов текущего запроса, истории и полного контекста;
+- предупреждать о превышении заданного context token limit;
+- сжимать старую историю в summary;
+- хранить summary отдельно от сообщений;
+- использовать разные стратегии управления контекстом:
+  - `full`;
+  - `summary`;
+  - `sliding-window`;
+  - `sticky-facts`;
+  - `branching`;
+- извлекать и хранить durable facts в key-value формате;
+- создавать и использовать ветки диалога;
+- сравнивать разные варианты решения в независимых branches.
+
+---
 
 ## Project structure
+
+Основная структура проекта:
 
 ```text
 ai-engineer-cli/
@@ -34,392 +57,774 @@ ai-engineer-cli/
 │       ├── model_pricing.py
 │       ├── prompt_templates.py
 │       ├── response_format.py
-│       └── prompts/
-│           ├── compare_options.md
-│           ├── create_solution_prompt.md
-│           ├── expert_group_solution.md
-│           ├── explain_code.md
-│           ├── explain_concept.md
-│           ├── solve_step_by_step.md
-│           └── summarize.md
+│       ├── terminal_ui.py
+│       ├── prompts/
+│       │   ├── compare_options.md
+│       │   ├── create_solution_prompt.md
+│       │   ├── expert_group_solution.md
+│       │   ├── explain_code.md
+│       │   ├── explain_concept.md
+│       │   ├── extract_facts.md
+│       │   ├── solve_step_by_step.md
+│       │   ├── summarize.md
+│       │   └── summarize_history.md
+│       └── agent/
+│           ├── __init__.py
+│           ├── agent.py
+│           ├── conversation_config.py
+│           ├── facts_manager.py
+│           ├── message.py
+│           ├── message_store.py
+│           ├── summary_manager.py
+│           ├── token_budget.py
+│           └── strategies/
+│               ├── __init__.py
+│               ├── base.py
+│               ├── branching.py
+│               ├── sliding_window.py
+│               └── sticky_facts.py
+├── docs/
+│   └── runtime-flow.md
 ├── reports/
-│   └── week1_notes.md
-├── README.md
-├── requirements.txt
-├── .env.example
-└── .gitignore
+│   └── week2_notes.md
+├── .env
+├── .gitignore
+└── README.md
 ```
 
-## Setup
+> В архиве проекта пакет может лежать сразу как `ai_engineer_cli/`, но в рабочей структуре курса используется путь `src/ai_engineer_cli/`.
 
-Create virtual environment:
+---
+
+## Installation
+
+Создать виртуальное окружение:
 
 ```bash
 python3 -m venv .venv
-```
-
-Activate environment:
-
-```bash
 source .venv/bin/activate
 ```
 
-Install dependencies:
+Установить зависимости:
 
 ```bash
-pip install -r requirements.txt
+pip install openai python-dotenv
 ```
 
-## Environment variables
-
-Create `.env` file in the project root:
+Создать `.env` в корне проекта:
 
 ```env
 OPENAI_API_KEY=your_api_key_here
 OPENAI_MODEL=gpt-5-mini
 ```
 
-`OPENAI_MODEL` is the default model. It can be overridden with `--model`.
+---
 
-`.env` must not be committed to Git.
+## Running the CLI
 
-Use `.env.example` as a safe template:
-
-```env
-OPENAI_API_KEY=your_api_key_here
-OPENAI_MODEL=gpt-5-mini
-```
-
-## Basic usage
+Базовый запуск через Python:
 
 ```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli "Объясни, что такое CLI"
+PYTHONPATH=src python -m ai_engineer_cli.cli "Кратко объясни, что такое JSON validation"
 ```
 
-Example with Markdown output:
+Для удобства можно добавить shell-функцию `bear` в `~/.zshrc`:
 
 ```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli "Объясни, что такое CLI" --format markdown --language ru
+bear() {
+  PYTHONPATH=src python -m ai_engineer_cli.cli "$@"
+}
 ```
 
-## CLI options
+После этого можно запускать так:
+
+```bash
+bear "Кратко объясни, что такое JSON validation"
+```
+
+---
+
+## Direct mode
+
+Direct mode — это простой одноразовый запрос к LLM без сохранения истории.
+
+```bash
+bear "Кратко объясни, что такое JSON validation" --format markdown --language ru
+```
+
+В этом режиме путь выполнения короткий:
 
 ```text
---format text|markdown|json
---language ru|en
---template TEMPLATE
---list-templates
---max-output-tokens N
---stop-instruction TEXT
---temperature FLOAT
---model MODEL
---no-separator
---no-metadata
+cli.py
+→ build_system_prompt(...)
+→ LLMClient.ask(...)
+→ OpenAI Responses API
+→ print_cli_response(...)
 ```
 
-### Options description
+Direct mode подходит для быстрых одноразовых вопросов.
+
+---
+
+## Agent mode
+
+Agent mode включает runtime-слой над `LLMClient`.
+
+```bash
+bear "Меня зовут Евгений. Я строю ai-engineer-cli." --agent --conversation-id demo
+```
+
+Следующий запрос с тем же `conversation-id` сможет использовать сохранённую историю:
+
+```bash
+bear "Как меня зовут и какой проект я строю?" --agent --conversation-id demo
+```
+
+В agent mode путь выполнения длиннее:
 
 ```text
---format              controls response format
---language            controls response language
---template            applies prompt template
---list-templates      shows available templates
---max-output-tokens   sets hard output token limit
---stop-instruction    adds finish instruction to system prompt
---temperature         controls randomness where supported
---model               overrides default model
---no-separator        prints raw response without visual separators
---no-metadata         hides model/duration/tokens/cost block
+cli.py
+→ MessageStore
+→ ConversationConfig
+→ Agent.run(...)
+→ load history / summary / facts / branch
+→ build context
+→ LLMClient.ask_messages(...)
+→ save updated history
+→ print_cli_response(...)
 ```
 
-## Response formats
+---
 
-Plain text:
+## Conversation config
+
+Чтобы не передавать много флагов в каждой команде, настройки можно сохранить в config конкретного диалога.
+
+Создание config:
 
 ```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli "Explain CLI" --format text
+bear --init-conversation day10-facts-bot \
+  --agent \
+  --format markdown \
+  --language ru \
+  --show-context-stats \
+  --context-strategy sticky-facts \
+  --recent-messages 4
 ```
 
-Markdown:
+После этого можно писать коротко:
 
 ```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli "Explain CLI" --format markdown
+bear "Сообщение 1. Я хочу создать Telegram-бота с нуля." --conversation-id day10-facts-bot
 ```
 
-JSON:
+Посмотреть config:
 
 ```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli "Explain CLI" --format json
+bear --show-conversation-config --conversation-id day10-facts-bot
 ```
 
-For JSON responses, the CLI validates that the model returned valid JSON.
-
-## Response language
-
-Russian:
+Очистить history, summary, facts и branches, но сохранить config:
 
 ```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli "Explain dependency injection" --language ru
+bear --clear-history --conversation-id day10-facts-bot
 ```
 
-English:
+Полностью удалить conversation file:
 
 ```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli "Explain dependency injection" --language en
+bear --delete-conversation --conversation-id day10-facts-bot
 ```
 
-Default language is `ru`.
+Conversation хранится в одном JSON-файле:
+
+```text
+.agent_data/conversations/{conversation_id}.json
+```
+
+Пример структуры:
+
+```json
+{
+  "conversation_id": "day10-facts-bot",
+  "config": {
+    "agent": true,
+    "response_format": "markdown",
+    "language": "ru",
+    "show_context_stats": true,
+    "use_summary": false,
+    "summary_every": 10,
+    "recent_messages": 4,
+    "context_token_limit": null,
+    "context_strategy": "sticky-facts",
+    "branch_id": "main",
+    "model": null,
+    "max_output_tokens": null,
+    "temperature": null,
+    "stop_instruction": null
+  },
+  "summary": null,
+  "facts": {},
+  "messages": [],
+  "branches": {
+    "main": {
+      "parent": null,
+      "checkpoint_message_index": 0,
+      "messages": []
+    }
+  }
+}
+```
+
+---
+
+## Config merge order
+
+Runtime settings вычисляются в `cli.py` через функцию `pick(...)`.
+
+Приоритет такой:
+
+```text
+1. Явно переданный CLI flag
+2. Stored conversation config
+3. Hardcoded default
+```
+
+Пример: если в config сохранён `language: ru`, но в конкретном запуске передать `--language en`, то один запрос выполнится на английском.
+
+---
+
+## Context strategies
+
+На конец Week 2 агент поддерживает несколько стратегий управления контекстом.
+
+### 1. Full
+
+```bash
+bear --init-conversation demo-full \
+  --agent \
+  --format markdown \
+  --language ru \
+  --context-strategy full
+```
+
+Контекст:
+
+```text
+system prompt
++ full history
++ current user message
+```
+
+Плюсы:
+
+- максимум деталей;
+- хорошая точность на коротких и средних диалогах.
+
+Минусы:
+
+- история постоянно растёт;
+- input tokens и стоимость растут;
+- можно упереться в context limit.
+
+---
+
+### 2. Summary
+
+```bash
+bear --init-conversation demo-summary \
+  --agent \
+  --format markdown \
+  --language ru \
+  --context-strategy summary \
+  --summary-every 10 \
+  --recent-messages 6
+```
+
+Контекст:
+
+```text
+system prompt
++ conversation summary
++ recent messages
++ current user message
+```
+
+Старые сообщения сжимаются через `SummaryManager`, summary хранится отдельно в conversation JSON.
+
+Плюсы:
+
+- меньше токенов на длинных диалогах;
+- сохраняет основные цели, решения и ограничения.
+
+Минусы:
+
+- summary может потерять мелкие детали;
+- создание summary требует дополнительного LLM-вызова.
+
+---
+
+### 3. Sliding Window
+
+```bash
+bear --init-conversation demo-sliding \
+  --agent \
+  --format markdown \
+  --language ru \
+  --context-strategy sliding-window \
+  --recent-messages 4
+```
+
+Контекст:
+
+```text
+system prompt
++ last N messages
++ current user message
+```
+
+Плюсы:
+
+- просто;
+- дёшево;
+- хорошо для коротких локальных задач.
+
+Минусы:
+
+- старые факты отбрасываются;
+- плохо подходит для длинного сбора требований.
+
+---
+
+### 4. Sticky Facts
+
+```bash
+bear --init-conversation demo-facts \
+  --agent \
+  --format markdown \
+  --language ru \
+  --show-context-stats \
+  --context-strategy sticky-facts \
+  --recent-messages 4
+```
+
+Контекст:
+
+```text
+system prompt
++ sticky facts
++ last N messages
++ current user message
+```
+
+Facts — это key-value память, которая хранится в conversation JSON:
+
+```json
+"facts": {
+  "project": "telegram_bot",
+  "goal": "Build a Telegram bot from scratch without no-code builders",
+  "architecture_rule": "Handlers must not access the database directly"
+}
+```
+
+`FactsManager` обновляет facts после каждого user message. Если модель вернула невалидный JSON при извлечении facts, агент не падает, а продолжает работу со старыми facts.
+
+Плюсы:
+
+- хорошо сохраняет цели, ограничения, предпочтения и архитектурные решения;
+- удобен для проектной памяти;
+- дешевле полной истории на длинной дистанции.
+
+Минусы:
+
+- facts extraction требует дополнительного LLM-вызова;
+- качество зависит от модели;
+- facts могут быть неполными или устаревшими.
+
+---
+
+### 5. Branching
+
+```bash
+bear --init-conversation demo-branching \
+  --agent \
+  --format markdown \
+  --language ru \
+  --show-context-stats \
+  --context-strategy branching \
+  --branch main
+```
+
+Создать ветки:
+
+```bash
+bear --create-branch json-storage --from-branch main --conversation-id demo-branching
+bear --create-branch sqlite-storage --from-branch main --conversation-id demo-branching
+```
+
+Продолжить одну ветку:
+
+```bash
+bear "Развиваем вариант JSON storage." \
+  --conversation-id demo-branching \
+  --context-strategy branching \
+  --branch json-storage
+```
+
+Продолжить другую ветку:
+
+```bash
+bear "Развиваем вариант SQLite storage." \
+  --conversation-id demo-branching \
+  --context-strategy branching \
+  --branch sqlite-storage
+```
+
+Посмотреть ветки:
+
+```bash
+bear --list-branches --conversation-id demo-branching
+```
+
+Плюсы:
+
+- удобно сравнивать архитектурные варианты;
+- ветки не смешивают историю;
+- подходит для исследования альтернатив.
+
+Минусы:
+
+- требует явного управления branches;
+- сложнее, чем обычный линейный диалог.
+
+---
+
+## Token tracking
+
+Агент умеет показывать примерную статистику контекста:
+
+```bash
+bear "Что ты помнишь по проекту?" \
+  --conversation-id demo-facts \
+  --show-context-stats
+```
+
+Вывод в metadata может содержать:
+
+```text
+context messages: 6
+history messages: 4
+estimated current request tokens: 18
+estimated history tokens: 120
+estimated full context tokens: 190
+```
+
+Важно:
+
+- `TokenBudget` даёт примерную оценку до запроса;
+- реальные `input_tokens`, `output_tokens`, `total_tokens` приходят из API после ответа;
+- стоимость считается через `model_pricing.py`.
+
+Можно задать warning limit:
+
+```bash
+bear "Проверь контекст" \
+  --conversation-id demo-facts \
+  --context-token-limit 1000
+```
+
+Если estimated full context tokens превышает лимит, в metadata появится предупреждение.
+
+---
 
 ## Prompt templates
 
-Prompt templates are stored in:
+Посмотреть доступные шаблоны:
+
+```bash
+bear --list-templates
+```
+
+Использовать шаблон:
+
+```bash
+bear "Что такое dependency injection?" --template explain_concept --format markdown --language ru
+```
+
+Шаблоны лежат в:
 
 ```text
 src/ai_engineer_cli/prompts/
 ```
 
-Available templates:
+---
+
+## JSON response mode
+
+Запросить JSON:
+
+```bash
+bear "Объясни dependency injection" --format json --language ru
+```
+
+В этом режиме `response_format.py` добавляет в system prompt требование вернуть валидный JSON, а затем CLI вызывает:
+
+```python
+validate_json_response(llm_response.text)
+```
+
+Если модель вернёт невалидный JSON, CLI завершится с ошибкой.
+
+---
+
+## Metadata
+
+По умолчанию CLI выводит ответ и metadata.
+
+Пример metadata:
 
 ```text
-compare_options
-create_solution_prompt
-expert_group_solution
-explain_code
-explain_concept
-solve_step_by_step
-summarize
-```
-
-List templates:
-
-```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli --list-templates
-```
-
-Use a template:
-
-```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli "Dependency injection in iOS" --template explain_concept --format markdown --language ru
-```
-
-Explain code:
-
-```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli "func configure(title: String) { titleLabel.text = title }" --template explain_code --format markdown --language ru
-```
-
-Compare options:
-
-```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli "UIKit vs SwiftUI for a legacy iOS app" --template compare_options --format markdown --language ru
-```
-
-Solve a programming task step by step:
-
-```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli "Given an integer array nums, return an array answer such that answer[i] is equal to the product of all the elements of nums except nums[i]. Solve it without using division and in O(n) time. Explain the approach and provide a Swift solution." --template solve_step_by_step --format markdown --language ru
-```
-
-## Model selection
-
-Main Week 1 model set:
-
-```text
-gpt-5-nano  — cheap / fast / weaker
-gpt-5-mini  — balanced default
-gpt-5       — stronger / more expensive
-```
-
-Use default model from `.env`:
-
-```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli "Объясни model selection в LLM API" --format markdown --language ru
-```
-
-Override model:
-
-```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli "Объясни Product of Array Except Self" --model gpt-5-nano --format markdown --language ru
-```
-
-```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli "Объясни Product of Array Except Self" --model gpt-5-mini --format markdown --language ru
-```
-
-```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli "Объясни Product of Array Except Self" --model gpt-5 --format markdown --language ru
-```
-
-## Metadata output
-
-By default, the CLI prints metadata after the response:
-
-```text
-model
-duration_seconds
-input_tokens
-output_tokens
-total_tokens
-estimated_cost_usd
-```
-
-Example:
-
-```text
-METADATA
+mode: agent
 model: gpt-5-mini
-duration_seconds: 2.31
-input_tokens: 145
-output_tokens: 280
-total_tokens: 425
-estimated_cost_usd: 0.00059625
+duration: 7.04s
+tokens: 55 input / 516 output / 571 total
+estimated cost: $0.00104575
+conversation_id: day10-facts-bot
+summary enabled: False
+context strategy: sticky-facts
+facts enabled: True
 ```
 
-Hide metadata:
+Отключить metadata:
 
 ```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli "Explain CLI" --no-metadata
+bear "Ответь коротко" --no-metadata
 ```
 
-## Output formatting
-
-By default, the CLI prints visual separators around the response and metadata:
-
-```text
-────────────────────────────────────────────────────────────
-AI RESPONSE
-────────────────────────────────────────────────────────────
-```
-
-Print raw output without separators:
+Вывести без визуальных box-разделителей:
 
 ```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli "Explain CLI" --no-separator
+bear "Ответь коротко" --no-separator
 ```
 
-This is useful when redirecting output to a file:
+---
 
-```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli "Explain CLI" --no-separator --no-metadata > output.md
-```
+## Runtime flow
 
-## Temperature
-
-Use `--temperature` to control generation randomness where the model supports it.
-
-Examples:
-
-```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli "Придумай 7 названий для CLI-инструмента разработчика" --temperature 0
-```
-
-```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli "Придумай 7 названий для CLI-инструмента разработчика" --temperature 0.7
-```
-
-```bash
-PYTHONPATH=src python -m ai_engineer_cli.cli "Придумай 7 названий для CLI-инструмента разработчика" --temperature 1.2
-```
-
-General rule:
+Подробный runtime flow вынесен в отдельный документ:
 
 ```text
-temperature = 0    → stable / deterministic
-temperature = 0.7  → balanced
-temperature = 1.2  → more diverse / less predictable
+docs/runtime-flow.md
 ```
 
-## Important GPT-5 notes
-
-GPT-5 models may not support `temperature` in the current API setup.
-
-The CLI accepts `--temperature`, but `LLMClient` does not send it for GPT-5 models.
-
-Small `max_output_tokens` values can truncate reasoning-heavy responses.
-
-Observed during Week 1:
+Он объясняет путь выполнения команды от терминала до ответа модели:
 
 ```text
---max-output-tokens 700 was too low for a code explanation task.
-gpt-5-nano and gpt-5 produced no visible answer.
-gpt-5-mini produced a truncated answer.
+user command
+→ cli.py
+→ argparse
+→ conversation config
+→ effective settings
+→ direct mode or agent mode
+→ context strategy
+→ LLMClient
+→ OpenAI API
+→ save state
+→ terminal output
 ```
 
-Engineering conclusion:
+---
 
-```text
-max_output_tokens is a hard limit, not a normal “make answer shorter” control.
-For reasoning-heavy tasks, avoid small max_output_tokens values or set a high enough limit.
-```
+## Key files
 
-## Cost estimation
+### `cli.py`
 
-Cost is estimated using local values from:
+Главная точка входа CLI.
 
-```text
-src/ai_engineer_cli/model_pricing.py
-```
+Отвечает за:
 
-Current prices are approximate and should be checked against official provider pricing.
+- парсинг аргументов;
+- conversation management commands;
+- config merge;
+- validation;
+- выбор direct или agent mode;
+- сбор metadata;
+- вывод результата.
 
-Formula:
+### `llm_client.py`
 
-```text
-cost = input_tokens / 1_000_000 * input_price
-     + output_tokens / 1_000_000 * output_price
-```
+Низкоуровневый клиент для OpenAI API.
 
-Current model pricing table:
+Отвечает за:
 
-```text
-gpt-5-nano  input: $0.05 / 1M tokens, output: $0.40 / 1M tokens
-gpt-5-mini  input: $0.25 / 1M tokens, output: $2.00 / 1M tokens
-gpt-5       input: $1.25 / 1M tokens, output: $10.00 / 1M tokens
-```
+- вызов Responses API;
+- поддержку single prompt и message list;
+- измерение duration;
+- извлечение token usage;
+- подсчёт estimated cost.
+
+### `agent/agent.py`
+
+Agent runtime.
+
+Отвечает за:
+
+- загрузку истории;
+- загрузку summary и facts;
+- выбор context strategy;
+- сбор сообщений для LLM;
+- вызов `LLMClient.ask_messages(...)`;
+- сохранение обновлённой истории.
+
+### `agent/message_store.py`
+
+JSON-хранилище conversation state.
+
+Хранит:
+
+- config;
+- summary;
+- facts;
+- messages;
+- branches.
+
+### `agent/conversation_config.py`
+
+Модель настроек диалога.
+
+### `agent/token_budget.py`
+
+Оценка токенов текущего запроса, истории и полного контекста.
+
+### `agent/summary_manager.py`
+
+Создаёт и обновляет summary старой истории.
+
+### `agent/facts_manager.py`
+
+Извлекает durable facts в key-value формате.
+
+### `agent/strategies/`
+
+Содержит стратегии управления контекстом:
+
+- `SlidingWindowStrategy`;
+- `StickyFactsStrategy`;
+- `BranchingStrategy`.
+
+---
 
 ## Week 1 result
 
-Week 1 built the foundation of `ai-engineer-cli`.
+Week 1 превратил проект в управляемый LLM API client.
 
-Implemented:
+Ключевые результаты:
 
-- Python CLI entry point;
-- config layer;
-- OpenAI API client;
-- response formats;
-- JSON validation;
-- language control;
-- output separators;
-- prompt templates;
-- constrained output experiments;
-- temperature control;
-- model selection;
-- response metadata;
-- duration measurement;
-- token usage extraction;
-- estimated cost calculation.
+- CLI умеет отправлять prompt в LLM;
+- поддерживает форматы ответа;
+- поддерживает языки ответа;
+- поддерживает templates;
+- умеет ограничивать output tokens;
+- умеет работать с model selection;
+- показывает metadata, token usage и estimated cost.
 
-Important engineering conclusions:
+---
 
-- LLM API should be wrapped behind a client layer.
-- Prompt templates are reusable behavioral contracts.
-- Response format is part of the interface between model and application.
-- JSON output must be validated.
-- Not all models support the same parameters.
-- GPT-5 models may not support `temperature`.
-- Small `max_output_tokens` can break reasoning-heavy outputs.
-- Model choice should be measured by quality, latency, token usage, and cost.
+## Week 2 result
+
+Week 2 превратил проект из stateless CLI client в agent runtime.
+
+Ключевые результаты:
+
+- появился `Agent` как отдельный слой над `LLMClient`;
+- появилась модель `Message`;
+- появилась persistent history;
+- появился `MessageStore`;
+- появился `ConversationConfig`;
+- появился token tracking;
+- появилась summary compression;
+- появились sticky facts;
+- появились branches;
+- появились context strategies;
+- CLI стал поддерживать long-running sessions.
+
+Главная архитектурная идея Week 2:
+
+```text
+LLMClient = how to call the model
+Agent = how to manage context around the model
+```
+
+---
+
+## Current limitations
+
+На конец Week 2 проект ещё имеет ограничения:
+
+- token counting до запроса приблизительный;
+- summary compression основана на количестве сообщений, а не на реальном token budget;
+- facts extraction зависит от качества ответа модели;
+- branches пока реализованы просто через JSON;
+- нет полноценного retry/repair механизма для structured JSON;
+- нет RAG;
+- нет tool calling;
+- нет MCP;
+- нет локальных моделей;
+- нет автоматических тестов runtime-сценариев.
+
+---
 
 ## Next steps
 
-Next: Week 2 — Agent Core.
+Дальше по курсу логично двигаться в сторону Week 3 — Controlled Assistant.
 
-Planned:
+Возможные следующие задачи:
 
-- agent loop;
-- task decomposition;
-- state between steps;
-- simple tool-like actions;
-- controlled iteration;
-- failure handling;
-- preparation for tools and MCP.
+- добавить task state machine;
+- добавить инварианты состояния;
+- добавить controlled execution flow;
+- добавить stricter JSON/structured output layer;
+- добавить tests для Agent runtime;
+- добавить evaluation сценарии для context strategies;
+- подготовить основу для tools и MCP.
+
+---
+
+## Example commands
+
+Direct mode:
+
+```bash
+bear "Кратко объясни, что такое runtime в iOS" --format markdown --language ru
+```
+
+Agent session:
+
+```bash
+bear --init-conversation ios-prep \
+  --agent \
+  --format markdown \
+  --language ru \
+  --show-context-stats \
+  --context-strategy sticky-facts \
+  --recent-messages 6
+
+bear "Готовлюсь к iOS-собеседованию. Начнём с ARC." --conversation-id ios-prep
+bear "Что ты уже знаешь о моей подготовке?" --conversation-id ios-prep
+```
+
+Telegram bot engineering scenario:
+
+```bash
+bear --init-conversation telegram-bot-spec \
+  --agent \
+  --format markdown \
+  --language ru \
+  --show-context-stats \
+  --context-strategy sticky-facts \
+  --recent-messages 4
+
+bear "Я хочу с нуля создать Telegram-бота без конструкторов." --conversation-id telegram-bot-spec
+bear "Нужны архитектура, PostgreSQL, Docker, деплой и тесты." --conversation-id telegram-bot-spec
+bear "Собери пошаговое ТЗ." --conversation-id telegram-bot-spec
+```
