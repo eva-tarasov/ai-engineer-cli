@@ -319,7 +319,6 @@ def main() -> None:
 
         conversation_id = args.init_conversation or args.conversation_id
         message_store = MessageStore(conversation_id=conversation_id)
-        stored_config = message_store.load_config()
 
         if args.init_conversation:
             conversation_config = build_conversation_config_from_args(args)
@@ -329,6 +328,8 @@ def main() -> None:
             print_conversation_config(args.init_conversation, conversation_config)
             return
 
+        stored_config = message_store.load_config()
+
         if args.show_conversation_config:
             print_conversation_config(conversation_id, stored_config)
             return
@@ -336,6 +337,11 @@ def main() -> None:
         if args.delete_conversation:
             message_store.delete()
             print(f"Conversation deleted: {conversation_id}")
+            return
+
+        if args.clear_history:
+            message_store.clear()
+            print(f"History cleared for conversation: {conversation_id}")
             return
 
         if args.list_branches:
@@ -501,11 +507,6 @@ def main() -> None:
                 context_strategy=effective_context_strategy,
                 branch_id=effective_branch_id,
             )
-
-            if args.clear_history:
-                agent.clear_history()
-                print(f"History cleared for conversation: {conversation_id}")
-                return
 
             llm_response = agent.run(
                 user_input=prompt,
